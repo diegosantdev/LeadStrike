@@ -67,14 +67,16 @@ export class LeadDiscoveryEngine {
           const scoring = this.scorer.calculate(business);
           
           if (scoring.score >= this.scoreThreshold) {
-            leads.push({
+            const qualifiedLead = {
               ...business,
               score: scoring.score,
               category: scoring.category,
               opportunity_signals: scoring.signals
-            });
+            };
+            
+            leads.push(qualifiedLead);
 
-            if (onProgress) onProgress({ type: 'qualified', lead: business });
+            if (onProgress) onProgress({ type: 'qualified', lead: qualifiedLead });
           }
 
           await new Promise(resolve => setTimeout(resolve, 300));
