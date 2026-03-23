@@ -68,5 +68,5 @@ export function getNichesByCategory(category) {
 }
 
 export function getAllCategories() {
-  return [...new Set(NICHES.map(n => n.category))];
+  return [...new Set(NICHES.map(n => n.category))].sort();
 }

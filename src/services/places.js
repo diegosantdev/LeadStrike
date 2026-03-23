@@ -7,23 +7,36 @@ export class PlacesService {
     this.apiKey = apiKey;
   }
 
+  async withRetry(fn, retries = 3, delay = 1000) {
+    for (let i = 0; i < retries; i++) {
+      try {
+        return await fn();
+      } catch (error) {
+        if (i === retries - 1) throw error;
+        await new Promise(resolve => setTimeout(resolve, delay * (i + 1)));
+      }
+    }
+  }
+
   async nearbySearch(lat, lng, radius, keyword, language = 'en') {
     try {
       let results = [];
       let nextPageToken = null;
 
       do {
-        const response = await client.placesNearby({
-          params: {
-            location: { lat, lng },
-            radius,
-            keyword,
-            key: this.apiKey,
-            language,
-            pagetoken: nextPageToken,
-          },
-          timeout: 30000,
-        });
+        const params = {
+          location: { lat, lng },
+          radius,
+          keyword,
+          key: this.apiKey,
+          language,
+        };
+
+        if (nextPageToken) params.pagetoken = nextPageToken;
+
+        const response = await this.withRetry(() =>
+          client.placesNearby({ params, timeout: 30000 })
+        );
 
         results = results.concat(response.data.results);
         nextPageToken = response.data.next_page_token;
@@ -35,29 +48,34 @@ export class PlacesService {
 
       return results;
     } catch (error) {
-      throw new Error(`Nearby search failed: ${error.message}`);
+      error.message = `Nearby search failed: ${error.message}`;
+      throw error;
     }
   }
 
   async placeDetails(placeId, language = 'en') {
     try {
-      const response = await client.placeDetails({
-        params: {
-          place_id: placeId,
-          fields: [
-            'place_id', 'name', 'formatted_address', 'geometry',
-            'types', 'user_ratings_total', 'rating',
-            'formatted_phone_number', 'international_phone_number',
-            'website', 'url', 'business_status'
-          ],
-          key: this.apiKey,
-          language,
-        },
-        timeout: 30000,
-      });
+      const response = await this.withRetry(() =>
+        client.placeDetails({
+          params: {
+            place_id: placeId,
+            fields: [
+              'place_id', 'name', 'formatted_address',
+              'user_ratings_total', 'rating',
+              'formatted_phone_number', 'international_phone_number',
+              'website', 'url', 'business_status'
+            ],
+            key: this.apiKey,
+            language,
+          },
+          timeout: 30000,
+        })
+      );
+
       return response.data.result;
     } catch (error) {
-      throw new Error(`Place details failed: ${error.message}`);
+      error.message = `Place details failed: ${error.message}`;
+      throw error;
     }
   }
 }

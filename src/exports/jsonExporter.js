@@ -2,14 +2,17 @@ import fs from 'fs';
 import path from 'path';
 
 export class JSONExporter {
-  export(leads, filename) {
-    const timestamp = new Date().toISOString().split('T')[0];
+  ensureOutputDir() {
     const outputDir = path.resolve(process.cwd(), 'output');
-    
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
+    return outputDir;
+  }
 
+  export(leads, filename) {
+    const timestamp = new Date().toISOString().split('T')[0];
+    const outputDir = this.ensureOutputDir();
     const fullPath = path.join(outputDir, filename || `opportunities-${timestamp}.json`);
 
     const hotCount = leads.filter(l => l.category === 'HOT').length;
@@ -41,6 +44,7 @@ export class JSONExporter {
         reviews: lead.reviews,
         phone: lead.phone,
         website: lead.website,
+        website_status: lead.website_status || 'none',
         maps_url: lead.maps_url,
         score: lead.score,
         category: lead.category,
@@ -54,12 +58,7 @@ export class JSONExporter {
 
   exportCSV(leads, filename) {
     const timestamp = new Date().toISOString().split('T')[0];
-    const outputDir = path.resolve(process.cwd(), 'output');
-    
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
-
+    const outputDir = this.ensureOutputDir();
     const fullPath = path.join(outputDir, filename || `opportunities-${timestamp}.csv`);
 
     const headers = [
@@ -72,8 +71,10 @@ export class JSONExporter {
       'Reviews',
       'Phone',
       'Website',
+      'Website Status',
       'Score',
       'Category',
+      'Opportunity Signals',
       'Maps URL'
     ];
 
@@ -87,8 +88,10 @@ export class JSONExporter {
       lead.reviews,
       lead.phone || '',
       lead.website || '',
+      lead.website_status || 'none',
       lead.score,
       lead.category,
+      this.escapeCSV((lead.opportunity_signals || []).join(' | ')),
       lead.maps_url
     ]);
 
@@ -97,7 +100,7 @@ export class JSONExporter {
       ...rows.map(row => row.join(','))
     ].join('\n');
 
-    fs.writeFileSync(fullPath, csv);
+    fs.writeFileSync(fullPath, '\uFEFF' + csv);
     return fullPath;
   }
 

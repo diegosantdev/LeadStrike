@@ -71,6 +71,7 @@ export class LeadDiscoveryEngine {
               ...business,
               score: scoring.score,
               category: scoring.category,
+              website_status: scoring.website_status,
               opportunity_signals: scoring.signals
             };
             

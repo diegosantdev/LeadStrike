@@ -11,6 +11,11 @@ export class LeadScorer {
       hasContact: parseInt(process.env.SCORE_HAS_CONTACT) || 20,
       operational: parseInt(process.env.SCORE_OPERATIONAL) || 10,
     };
+
+    const maxPossible = Object.values(this.weights).reduce((a, b) => a + b, 0);
+    if (maxPossible < 100) {
+      console.warn('[LeadScorer] Weights sum below 100 — HOT leads may be unreachable');
+    }
   }
 
   calculate(business) {
@@ -54,16 +59,17 @@ export class LeadScorer {
       signals.push('operational business - money on the table NOW');
     }
 
+    const cappedScore = Math.min(score, 100);
+
     return {
-      score: Math.min(score, 100),
+      score: cappedScore,
       signals,
-      category: this.categorize(score)
+      category: this.categorize(cappedScore),
+      website_status: this.getWebsiteStatus(business.website)
     };
   }
 
   isWeakWebsite(url) {
-    if (!url) return false;
-    
     const weakDomains = [
       'facebook.com',
       'instagram.com',
@@ -73,6 +79,12 @@ export class LeadScorer {
     ];
 
     return weakDomains.some(domain => url.toLowerCase().includes(domain));
+  }
+
+  getWebsiteStatus(url) {
+    if (!url) return 'none';
+    if (this.isWeakWebsite(url)) return 'social_only';
+    return 'has_website';
   }
 
   categorize(score) {

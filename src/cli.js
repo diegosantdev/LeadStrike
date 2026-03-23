@@ -28,9 +28,15 @@ const customStyles = {
   strong: chalk.white.bold
 };
 
+function isCancelError(err) {
+  return err === '' ||
+    err?.message === 'readline was closed' ||
+    err?.code === 'ERR_USE_AFTER_CLOSE' ||
+    err?.isTtyError;
+}
+
 process.on('uncaughtException', (err) => {
-  if (err.code === 'ERR_USE_AFTER_CLOSE' || 
-      err.message === 'readline was closed') {
+  if (isCancelError(err)) {
     console.log(chalk.gray('\n\n👋 Cancelled. See you next time!\n'));
     process.exit(0);
   }
@@ -44,7 +50,7 @@ process.on('SIGINT', () => {
 
 async function showSplash() {
   console.clear();
-  
+
   const textLogo = `
    __                   _______ __       _ __     
   / /   ___  ____ _____/ / ___// /______(_) /_____
@@ -52,7 +58,7 @@ async function showSplash() {
 / /___/  __/ /_/ / /_/ /___/ / /_/ /  / / ,< /  __/
 /_____/\\___/\\__,_/\\__,_//____/\\__/_/  /_/_/|_|\\___/
   `;
-  
+
   console.log(chalk.white.bold(textLogo));
   console.log(chalk.white('High-Intent Lead Discovery Engine v1.0'));
   console.log(chalk.gray('Find businesses losing money due to weak digital presence\n'));
@@ -62,34 +68,23 @@ async function startCLI() {
   try {
     await showSplash();
 
-    // Check API key
     if (!process.env.GOOGLE_PLACES_API_KEY) {
       console.log(chalk.red('❌ GOOGLE_PLACES_API_KEY not found in .env file'));
       console.log(chalk.yellow('\nPlease create a .env file with your API key:'));
-      console.log(chalk.white('GOOGLE_PLACES_API_KEY=your_key_here\n'));
+      console.log(chalk.gray('  cp .env.example .env'));
+      console.log(chalk.white('  GOOGLE_PLACES_API_KEY=your_key_here\n'));
       process.exit(1);
     }
 
-    // Select mode
     const modePrompt = new Select({
       name: 'mode',
       message: 'Select discovery mode:',
       choices: [
-        { name: 'single', message: '⚡ Quick Hunt - Single city + niche (2-5 min)' },
-        { name: 'multi', message: '📦 Batch Prospecting - Multiple targets (10-30 min)' },
+        { name: 'single',  message: '⚡ Quick Hunt - Single city + niche (2-5 min)' },
+        { name: 'multi',   message: '📦 Batch Prospecting - Multiple targets (10-30 min)' },
         { name: 'country', message: '🌍 Market Sweep - Entire country coverage (1-3 hours)' }
       ],
-      styles: {
-        primary: chalk.white,
-        success: chalk.green,
-        danger: chalk.red,
-        warning: chalk.yellow,
-        muted: chalk.gray,
-        disabled: chalk.gray,
-        dark: chalk.gray,
-        underline: chalk.white,
-        heading: chalk.white.bold
-      }
+      styles: customStyles
     });
 
     const mode = await modePrompt.run();
@@ -104,12 +99,13 @@ async function startCLI() {
       searchConfigs = await configureCountrySearch();
     }
 
-    // Confirm
+    const estimatedMinutes = Math.max(1, Math.ceil(searchConfigs.length * 1.5));
+
     console.log(chalk.white('\n' + '═'.repeat(60)));
     console.log(chalk.white.bold('🎯 Ready to Start'));
     console.log(chalk.white('═'.repeat(60)));
     console.log(chalk.white(`\n   Searches: ${searchConfigs.length}`));
-    console.log(chalk.gray(`   Time: ~${Math.ceil(searchConfigs.length * 2)} minutes`));
+    console.log(chalk.gray(`   Time: ~${estimatedMinutes} minute${estimatedMinutes > 1 ? 's' : ''}`));
     console.log(chalk.white(`   Expected: ${Math.ceil(searchConfigs.length * 3)}-${Math.ceil(searchConfigs.length * 8)} opportunities`));
     console.log(chalk.white('\n' + '═'.repeat(60) + '\n'));
 
@@ -124,17 +120,14 @@ async function startCLI() {
       process.exit(0);
     }
 
-    // Execute search
     await executeSearch(searchConfigs);
 
   } catch (err) {
-    if (err === '' || 
-        err.message === 'readline was closed' || 
-        err.code === 'ERR_USE_AFTER_CLOSE') {
+    if (isCancelError(err)) {
       console.log(chalk.gray('\n👋 Cancelled. See you next time!\n'));
       process.exit(0);
     }
-    
+
     console.error(chalk.red('\n❌ Error:'), err.message);
     process.exit(1);
   }
@@ -161,11 +154,10 @@ async function configureSingleSearch() {
   const cityName = await cityPrompt.run();
   const city = country.cities.find(c => c.name === cityName);
 
-  const categories = getAllCategories();
   const categoryPrompt = new Select({
     name: 'category',
     message: 'Select niche category:',
-    choices: categories,
+    choices: getAllCategories(),
     styles: customStyles
   });
 
@@ -200,11 +192,10 @@ async function configureMultiSearch() {
 
   const selectedCountries = await countriesPrompt.run();
 
-  const categories = getAllCategories();
   const categoryPrompt = new MultiSelect({
     name: 'categories',
     message: 'Select niche categories:',
-    choices: categories,
+    choices: getAllCategories(),
     limit: 10,
     styles: customStyles
   });
@@ -268,7 +259,7 @@ async function configureCountrySearch() {
 async function executeSearch(configs) {
   const engine = new LeadDiscoveryEngine(process.env.GOOGLE_PLACES_API_KEY);
   const exporter = new JSONExporter();
-  
+
   const progressBar = new cliProgress.SingleBar({
     format: chalk.white('{bar}') + ' {percentage}% | {value}/{total} | {leads} opportunities',
     barCompleteChar: '█',
@@ -284,7 +275,7 @@ async function executeSearch(configs) {
 
   for (const config of configs) {
     try {
-      const leads = await engine.discover({
+      await engine.discover({
         ...config,
         onProgress: (event) => {
           if (event.type === 'qualified') {
@@ -297,17 +288,12 @@ async function executeSearch(configs) {
         }
       });
 
-      for (const lead of leads) {
-        if (!seenPlaceIds.has(lead.place_id)) {
-          seenPlaceIds.add(lead.place_id);
-          allLeads.push(lead);
-        }
-      }
-      
       completed++;
       progressBar.update(completed, { leads: allLeads.length });
 
     } catch (error) {
+      completed++;
+      progressBar.update(completed, { leads: allLeads.length });
       console.error(chalk.red(`\nError in ${config.city.name} - ${config.niche.name}: ${error.message}`));
     }
 
@@ -317,14 +303,15 @@ async function executeSearch(configs) {
   progressBar.stop();
 
   allLeads.sort((a, b) => b.score - a.score);
-  const hotCount = allLeads.filter(l => l.category === 'HOT').length;
+
+  const hotCount  = allLeads.filter(l => l.category === 'HOT').length;
   const warmCount = allLeads.filter(l => l.category === 'WARM').length;
   const coldCount = allLeads.filter(l => l.category === 'COLD').length;
 
   console.log(chalk.white('\n' + '═'.repeat(60)));
   console.log(chalk.white.bold('           🎯 DISCOVERY COMPLETE'));
   console.log(chalk.white('═'.repeat(60)));
-  
+
   if (allLeads.length === 0) {
     console.log(chalk.yellow('\n⚠️  No opportunities found matching your criteria.'));
     console.log(chalk.gray('\nTry adjusting filters in .env:'));
@@ -332,23 +319,19 @@ async function executeSearch(configs) {
     console.log(chalk.gray('  • Lower MIN_RATING (currently 4.0)'));
     console.log(chalk.gray('  • Lower SCORE_THRESHOLD (currently 80)'));
   } else {
+    const avgScore = Math.round(allLeads.reduce((sum, l) => sum + l.score, 0) / allLeads.length);
+    const conversionRate = Math.round((hotCount / allLeads.length) * 100);
+
     console.log(chalk.green(`\n✅ Found ${allLeads.length} qualified opportunities`));
     console.log('');
-    console.log(chalk.red(`   🔥 ${hotCount} HOT leads`) + chalk.gray(' - Contact immediately'));
+    console.log(chalk.red(`   🔥 ${hotCount} HOT leads`)  + chalk.gray(' - Contact immediately'));
     console.log(chalk.yellow(`   🟡 ${warmCount} WARM leads`) + chalk.gray(' - Qualified prospects'));
-    console.log(chalk.gray(`   ⚪ ${coldCount} COLD leads`) + chalk.gray(' - Nurture campaign'));
-
-    if (allLeads.length > 0) {
-      const avgScore = Math.round(allLeads.reduce((sum, l) => sum + l.score, 0) / allLeads.length);
-      const conversionRate = hotCount > 0 ? Math.round((hotCount / allLeads.length) * 100) : 0;
-      
-      console.log('');
-      console.log(chalk.white(`📊 Average score: ${avgScore}/100`));
-      console.log(chalk.white(`💰 High-intent rate: ${conversionRate}%`));
-    }
-
+    console.log(chalk.gray(`   ⚪ ${coldCount} COLD leads`)  + chalk.gray(' - Nurture campaign'));
+    console.log('');
+    console.log(chalk.white(`📊 Average score: ${avgScore}/100`));
+    console.log(chalk.white(`💰 High-intent rate: ${conversionRate}%`));
     console.log(chalk.white('\n' + '─'.repeat(60)));
-    
+
     const exportPrompt = new Select({
       name: 'export',
       message: 'Export results:',
@@ -359,16 +342,14 @@ async function executeSearch(configs) {
     const exportFormat = await exportPrompt.run();
 
     if (exportFormat !== 'Skip') {
-      const now = new Date();
-      const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, -5);
-      
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
       console.log('');
-      
+
       if (exportFormat === 'JSON' || exportFormat === 'Both') {
         const jsonPath = exporter.export(allLeads, `opportunities-${timestamp}.json`);
         console.log(chalk.green(`✅ JSON saved: ${jsonPath}`));
       }
-      
+
       if (exportFormat === 'CSV' || exportFormat === 'Both') {
         const csvPath = exporter.exportCSV(allLeads, `opportunities-${timestamp}.csv`);
         console.log(chalk.green(`✅ CSV saved: ${csvPath}`));
@@ -377,8 +358,8 @@ async function executeSearch(configs) {
       console.log('');
       console.log(chalk.white('💡 Next Steps:'));
       console.log(chalk.gray(`   1. Start with ${hotCount} HOT leads (highest conversion)`));
-      console.log(chalk.gray(`   2. Use opportunity_signals for your pitch`));
-      console.log(chalk.gray(`   3. Expected close rate: 15-30% on HOT leads`));
+      console.log(chalk.gray('   2. Use opportunity_signals for your pitch'));
+      console.log(chalk.gray('   3. Expected close rate: 15-30% on HOT leads'));
     }
   }
 
@@ -388,14 +369,11 @@ async function executeSearch(configs) {
 }
 
 startCLI().catch(err => {
-  if (err === '' || 
-      err.message === 'readline was closed' || 
-      err.code === 'ERR_USE_AFTER_CLOSE' ||
-      err.isTtyError) {
+  if (isCancelError(err)) {
     console.log(chalk.gray('\n👋 Cancelled. See you next time!\n'));
     process.exit(0);
   }
-  
+
   console.error(chalk.red('\n❌ Fatal Error:'), err.message);
   process.exit(1);
 });
