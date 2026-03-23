@@ -19,7 +19,7 @@
 
 <br/>
 
-<img src="./library/demo.gif" width="860" />
+<img src="./library/demo.gif" width="680" />
 
 <br/>
 
