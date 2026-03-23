@@ -1,0 +1,9 @@
+node_modules/
+.env
+*.log
+.DS_Store
+output/
+opportunities-*.json
+opportunities-*.csv
+hot-leads-*.json
+warm-leads-*.json
